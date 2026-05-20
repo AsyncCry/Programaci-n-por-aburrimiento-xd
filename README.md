@@ -1,2 +1,2 @@
 # Cositas :D
-Simplemente cosas. 
+Cosas que programo para mantenerme programando constantemente. :D
