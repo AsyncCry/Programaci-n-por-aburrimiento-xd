@@ -1,2 +1,2 @@
-# Programaci-n-por-aburrimiento-xd
+# Cositas :D
 Simplemente cosas. 
