@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mini Mindustry - Solo File</title>
+    <style>
+        body {
+            background-color: #16161a;
+            color: #00ffcc;
+            font-family: 'Courier New', Courier, monospace;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            overflow: hidden;
+        }
+        #game-container {
+            display: flex;
+            background-color: #242629;
+            border: 3px solid #00ffcc;
+            box-shadow: 0 0 25px rgba(0, 255, 204, 0.2);
+        }
+        #ui-panel {
+            padding: 20px;
+            border-right: 2px solid #00ffcc;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            width: 220px;
+            box-sizing: border-box;
+        }
+        h2 { margin-top: 0; color: #fffffe; font-size: 20px; text-transform: uppercase; }
+        p { margin: 5px 0; font-size: 14px; }
+        .stat { font-weight: bold; color: #fffffe; }
+        button {
+            background-color: #00ffcc;
+            color: #16161a;
+            border: 2px solid transparent;
+            padding: 12px;
+            font-weight: bold;
+            font-family: inherit;
+            cursor: pointer;
+            transition: 0.2s;
+            text-transform: uppercase;
+        }
+        button:hover {
+            background-color: #16161a;
+            color: #00ffcc;
+            border-color: #00ffcc;
+        }
+        button.active {
+            background-color: #ff0055;
+            color: white;
+        }
+        canvas {
+            background-color: #1a1a1e;
+            cursor: crosshair;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <div id="ui-panel">
+            <h2>Mindustry Mini</h2>
+            <hr style="border-color: #00ffcc;">
+            <p>💎 Núcleo: <span id="resources" class="stat">100</span></p>
+            <p>❤️ Vidas: <span id="lives" class="stat">20</span></p>
+            <p>💀 Bajas: <span id="score" class="stat">0</span></p>
+            <button id="btn-turret">Construir Torre (50 💎)</button>
+            <p style="font-size: 11px; color: #94a1b2; margin-top: auto;">
+                Modo: Selecciona la torre y haz clic en el mapa para colocarla.
+            </p>
+        </div>
+        <canvas id="gameCanvas" width="800" height="600"></canvas>
+    </div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+let resources = 120;
+let lives = 20;
+let score = 0;
+let enemies = [];
+let turrets = [];
+let projectiles = [];
+let isPlacingTurret = false;
+let spawnTimer = 0;
+
+const txtResources = document.getElementById('resources');
+const txtLives = document.getElementById('lives');
+const txtScore = document.getElementById('score');
+const btnTurret = document.getElementById('btn-turret');
+
+const path = [
+    { x: 0, y: 300 },
+    { x: 200, y: 300 },
+    { x: 200, y: 100 },
+    { x: 550, y: 100 },
+    { x: 550, y: 500 },
+    { x: 800, y: 500 }
+];
+
+btnTurret.addEventListener('click', () => {
+    if (resources >= 50) {
+        isPlacingTurret = !isPlacingTurret;
+        btnTurret.classList.toggle('active', isPlacingTurret);
+    }
+});
+
+canvas.addEventListener('click', (event) => {
+    if (!isPlacingTurret) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+
+    if (resources >= 50) {
+        turrets.push(new Turret(x, y));
+        resources -= 50;
+        isPlacingTurret = false;
+        btnTurret.classList.remove('active');
+        updateUI();
+    }
+});
+
+function updateUI() {
+    txtResources.innerText = resources;
+    txtLives.innerText = lives;
+    txtScore.innerText = score;
+}
+
+
+class Enemy {
+    constructor() {
+        this.x = path[0].x;
+        this.y = path[0].y;
+        this.speed = 1.5 + Math.random() * 1;
+        this.hp = 30 + (score * 2); // Se vuelven más fuertes con cada baja
+        this.maxHp = this.hp;
+        this.pathIndex = 0;
+        this.radius = 12;
+    }
+
+    update() {
+        const target = path[this.pathIndex + 1];
+        if (!target) return true; // Llegó al final
+
+        const dx = target.x - this.x;
+        const dy = target.y - this.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        if (dist < this.speed) {
+            this.pathIndex++;
+        } else {
+            this.x += (dx / dist) * this.speed;
+            this.y += (dy / dist) * this.speed;
+        }
+        return false;
+    }
+
+    draw() {
+        ctx.fillStyle = '#ff0055';
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Barra de vida pequeña
+        ctx.fillStyle = '#555';
+        ctx.fillRect(this.x - 15, this.y - 20, 30, 4);
+        ctx.fillStyle = '#00ffcc';
+        const hpPercent = this.hp / this.maxHp;
+        ctx.fillRect(this.x - 15, this.y - 20, 30 * hpPercent, 4);
+    }
+}
+
+class Turret {
+    constructor(x, y) {
+        this.x = x;
+        this.y = y;
+        this.range = 130;
+        this.cooldown = 0;
+        this.fireRate = 30; // Dispara cada 30 frames (0.5s)
+    }
+
+    update() {
+        if (this.cooldown > 0) this.cooldown--;
+
+        if (this.cooldown === 0) {
+            let target = null;
+            let minDist = this.range;
+
+            for (let enemy of enemies) {
+                const dx = enemy.x - this.x;
+                const dy = enemy.y - this.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+
+                if (dist < minDist) {
+                    minDist = dist;
+                    target = enemy;
+                }
+            }
+
+            if (target) {
+                projectiles.push(new Projectile(this.x, this.y, target));
+                this.cooldown = this.fireRate;
+            }
+        }
+    }
+
+    draw() {
+        if (isPlacingTurret) {
+            ctx.strokeStyle = 'rgba(0, 255, 204, 0.1)';
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.range, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // Base de la torre
+        ctx.fillStyle = '#7f5af0';
+        ctx.fillRect(this.x - 15, this.y - 15, 30, 30);
+        // Cañón
+        ctx.fillStyle = '#fffffe';
+        ctx.fillRect(this.x - 5, this.y - 5, 10, 10);
+    }
+}
+
+class Projectile {
+    constructor(x, y, target) {
+        this.x = x;
+        this.y = y;
+        this.target = target;
+        this.speed = 5;
+        this.damage = 10;
+        this.alive = true;
+    }
+
+    update() {
+        
+        if (!enemies.includes(this.target)) {
+            this.alive = false;
+            return;
+        }
+
+        const dx = this.target.x - this.x;
+        const dy = this.target.y - this.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        if (dist < this.speed) {
+            this.target.hp -= this.damage;
+            this.alive = false;
+            if (this.target.hp <= 0) {
+                const index = enemies.indexOf(this.target);
+                if (index > -1) {
+                    enemies.splice(index, 1);
+                    resources += 15; // Recompensa por matar bicho
+                    score++;
+                    updateUI();
+                }
+            }
+        } else {
+            this.x += (dx / dist) * this.speed;
+            this.y += (dy / dist) * this.speed;
+        }
+    }
+
+    draw() {
+        ctx.fillStyle = '#ffff00';
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, 4, 0, Math.PI * 2);
+        ctx.fill();
+    }
+}
+
+
+
+function drawPath() {
+    ctx.strokeStyle = '#2b2c3c';
+    ctx.lineWidth = 32;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(path[0].x, path[0].y);
+    for (let i = 1; i < path.length; i++) {
+        ctx.lineTo(path[i].x, path[i].y);
+    }
+    ctx.stroke();
+}
+
+function gameLoop() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // 1. Dibujar el mapa
+    drawPath();
+
+    // 2. Aparecer enemigos cada cierto tiempo
+    spawnTimer++;
+    if (spawnTimer > 80) { // Cada 80 frames sale uno
+        enemies.push(new Enemy());
+        spawnTimer = 0;
+    }
+
+    
+    for (let i = enemies.length - 1; i >= 0; i--) {
+        const reachedEnd = enemies[i].update();
+        if (reachedEnd) {
+            enemies.splice(i, 1);
+            lives--;
+            updateUI();
+            if (lives <= 0) {
+                alert("GAME OVER - Tu Core fue destruido. Bajas totales: " + score);
+                document.location.reload();
+            }
+        } else {
+            enemies[i].draw();
+        }
+    }
+
+    for (let turret of turrets) {
+        turret.update();
+        turret.draw();
+    }
+
+    for (let i = projectiles.length - 1; i >= 0; i--) {
+        projectiles[i].update();
+        if (!projectiles[i].alive) {
+            projectiles.splice(i, 1);
+        } else {
+            projectiles[i].draw();
+        }
+    }
+
+    requestAnimationFrame(gameLoop);
+}
+
+
+updateUI();
+requestAnimationFrame(gameLoop);
+</script>
+
+</body>
+</html>
